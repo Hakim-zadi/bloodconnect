@@ -1,0 +1,17 @@
+BLOODCONNECT - DEPLOY GUIDE
+===========================
+Local (apne computer par)
+  1. .env file banayein (.env.example ki copy) aur SMTP_EMAIL / SMTP_PASSWORD likhein.
+  2. pip install -r requirements.txt
+  3. python data.py
+  Ab .env badalne par Flask restart karne ki zaroorat nahi (email bhejte waqt dobara parhi jati hai).
+
+Hosting (Render / Railway etc.)
+  - .env upload NAHI karni. Host ke dashboard mein "Environment Variables" mein ye daalein:
+      SMTP_EMAIL, SMTP_PASSWORD (naya Gmail App Password), SMTP_HOST=smtp.gmail.com, SMTP_PORT=587
+      DB_HOST, DB_USER, DB_PASSWORD, DB_NAME   (hosted MySQL ki details)
+      FLASK_DEBUG=0
+  - Start command: gunicorn data:app --bind 0.0.0.0:$PORT   (Procfile mein pehle se hai)
+  - Ye app MySQL use karta hai. Host par MySQL database chahiye (Railway MySQL, Aiven, PlanetScale-compatible etc.),
+    local MySQL deploy par nahi chalega.
+  - private_uploads/ (health reports) kuch hosts par restart par mit jati hain; persistent disk/volume lagayein.

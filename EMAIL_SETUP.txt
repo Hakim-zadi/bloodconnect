@@ -1,0 +1,45 @@
+BLOODCONNECT EMAIL SETUP (FIXED)
+================================
+
+Masla kya tha?
+- Email tab hi jati hai jab SMTP_EMAIL aur SMTP_PASSWORD server ko mile hon.
+  Pehle yeh sirf terminal ke "set" commands se milte the, isliye agar Flask
+  VS Code / PyCharm ke Run button se chalaya, ya naya terminal khola, to
+  email bhejna fail ho jata tha.
+- Gmail App Password mein spaces hote hain ("abcd efgh ijkl mnop"); spaces
+  ke saath login fail hota tha. Ab spaces khud remove ho jate hain.
+- Admin signup email admin@gmail.com hai (kisi aur ka mailbox), isliye
+  admin ka code kabhi nahi pahunchta tha. Ab admin ka code aapke SMTP_EMAIL
+  (ya ADMIN_CODE_RECEIVER) par jata hai.
+
+Setup (sirf 1 baar)
+1. Gmail account mein 2-Step Verification ON karein.
+2. Google Account > Security > App passwords se 16 character ka app password banayein.
+3. Is folder mein ".env.example" ki copy banayein aur naam rakhein ".env"
+   (bilkul yehi naam, .txt nahi). Andar likhein:
+
+     SMTP_EMAIL=yourgmail@gmail.com
+     SMTP_PASSWORD=abcdefghijklmnop
+     SMTP_HOST=smtp.gmail.com
+     SMTP_PORT=587
+
+4. pip install -r requirements.txt
+5. python data.py
+
+Test karna
+- Browser mein kholein:
+    http://127.0.0.1:5000/api/email-status
+  smtpEmailSet aur smtpPasswordSet dono true hone chahiye.
+- Asli test email bhejne ke liye:
+    http://127.0.0.1:5000/api/email-status?to=apni_email@gmail.com
+  testSent true aaye to sab theek hai; warna "error" mein saaf wajah likhi hogi.
+
+Agar ab bhi na chale
+- "Gmail rejected the login"  -> normal password nahi, App Password use karein.
+- "Could not connect"        -> internet/firewall/antivirus check karein, ya SMTP_PORT=465 try karein.
+- Mail na dikhe              -> Spam/Junk folder check karein.
+- .env ya password kabhi GitHub par upload na karein.
+
+Notes
+- Codes server memory mein hote hain; Flask restart (debug mode mein file save
+  par bhi) hone se purane codes expire ho jate hain.

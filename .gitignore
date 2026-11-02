@@ -1,0 +1,4 @@
+.env
+private_uploads/
+__pycache__/
+*.pyc

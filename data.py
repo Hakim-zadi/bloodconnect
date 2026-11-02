@@ -18,7 +18,7 @@ from countries import normalize_country, validate_national_id, public_config, CO
 # A donor must wait this many days after their last donation before donating again.
 WAITING_DAYS = 90
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=".")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # max request size: 10 MB
 HEALTH_REPORT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "private_uploads", "health_reports")

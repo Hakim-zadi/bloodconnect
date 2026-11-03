@@ -107,8 +107,40 @@ def friendly_smtp_error(exc):
                 "firewall/antivirus, or try SMTP_PORT=465." % (SMTP_HOST, SMTP_PORT))
     return "Email sending failed: %s" % exc
 
+def _send_via_brevo_api(api_key, to_email, subject, body, reply_to=None):
+    """Send over HTTPS (port 443). Needed on hosts that block SMTP ports (e.g. Render free tier)."""
+    import json as _json
+    import urllib.request as _urlreq
+    import urllib.error as _urlerr
+    payload = {
+        "sender": {"name": SMTP_FROM_NAME, "email": SMTP_EMAIL},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "textContent": body,
+    }
+    if reply_to:
+        payload["replyTo"] = {"email": reply_to.split("<")[-1].replace(">", "").strip()}
+    req = _urlreq.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=_json.dumps(payload).encode("utf-8"),
+        headers={"api-key": api_key, "content-type": "application/json", "accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=20) as resp:
+            resp.read()
+    except _urlerr.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "ignore")[:300]
+        raise RuntimeError("Brevo email API error %s: %s" % (exc.code, detail))
+
 def send_email(to_email, subject, body, reply_to=None):
     _refresh_smtp_settings()
+    brevo_key = os.environ.get("BREVO_API_KEY", "").strip()
+    if brevo_key:
+        if not SMTP_EMAIL:
+            raise RuntimeError("Set SMTP_EMAIL to the sender address you verified in Brevo.")
+        _send_via_brevo_api(brevo_key, to_email, subject, body, reply_to)
+        return
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         raise RuntimeError("Email is not configured on the server. Set SMTP_EMAIL and SMTP_PASSWORD "
                            "(Gmail App Password) as environment variables on your host, or in the .env "
@@ -673,7 +705,7 @@ def email_status():
     Add ?to=someone@example.com to actually send a test email."""
     _refresh_smtp_settings()
     info = {"build": BUILD, "envFile": ENV_PATH, "envFileFound": ENV_FOUND, "smtpHost": SMTP_HOST, "smtpPort": SMTP_PORT,
-            "smtpEmailSet": bool(SMTP_EMAIL), "smtpPasswordSet": bool(SMTP_PASSWORD),
+            "smtpEmailSet": bool(SMTP_EMAIL), "smtpPasswordSet": bool(SMTP_PASSWORD), "brevoApiKeySet": bool(os.environ.get("BREVO_API_KEY", "").strip()),
             "passwordLength": len(SMTP_PASSWORD)}
     to = normalize_email(request.args.get("to"))
     if to:

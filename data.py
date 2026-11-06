@@ -240,12 +240,42 @@ def handle_internal_error(error):
     return error
 
 
+import hmac as _hmac
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# Secret used to sign login tokens. Set AUTH_SECRET on the host; otherwise one is derived
+# from the database credentials (stable across restarts, never stored in the code).
+_AUTH_SECRET = (os.environ.get("AUTH_SECRET", "").strip()
+                or hashlib.sha256(("bc-auth|" + DB_HOST + "|" + DB_USER + "|" + DB_PASSWORD).encode()).hexdigest())
+
+def make_token(user_id):
+    sig = _hmac.new(_AUTH_SECRET.encode(), str(int(user_id)).encode(), hashlib.sha256).hexdigest()[:40]
+    return "%d.%s" % (int(user_id), sig)
+
+def user_id_from_token(raw):
+    try:
+        uid_s, sig = str(raw).split(".", 1)
+        good = _hmac.new(_AUTH_SECRET.encode(), str(int(uid_s)).encode(), hashlib.sha256).hexdigest()[:40]
+        return int(uid_s) if _hmac.compare_digest(sig, good) else None
+    except Exception:
+        return None
+
+def hash_for_storage(client_hash):
+    """Salted, slow hash of the SHA-256 value the browser sends."""
+    return generate_password_hash(str(client_hash or ""))
+
+def password_matches(stored, client_hash):
+    """True if the password is right. Also accepts old rows that still hold the bare SHA-256."""
+    stored = stored or ""
+    client_hash = str(client_hash or "")
+    if stored.startswith(("scrypt:", "pbkdf2:")):
+        return check_password_hash(stored, client_hash)
+    return bool(stored) and _hmac.compare_digest(stored, client_hash)
+
 def get_authenticated_user(cur, payload=None, require_admin=False):
     payload = payload or {}
-    raw_id = request.headers.get("X-User-ID") or payload.get("userId")
-    try:
-        user_id = int(raw_id)
-    except (TypeError, ValueError):
+    user_id = user_id_from_token(request.headers.get("X-User-ID", ""))
+    if user_id is None:
         return None, "Please sign up or log in before continuing."
     cur.execute("SELECT id,name,email,is_admin,is_blocked FROM users WHERE id=%s LIMIT 1", (user_id,))
     user = cur.fetchone()
@@ -576,7 +606,7 @@ def user_dict(row):
     if not row:
         return None
     return {"id": row[0], "name": row[1], "phone": row[2], "city": row[3], "bloodType": row[4],
-            "username": row[5], "email": row[6], "passwordHash": row[7], "isDonor": bool(row[8]),
+            "username": row[5], "email": row[6], "passwordHash": "", "isDonor": bool(row[8]),
             "isAdmin": bool(row[9]), "createdAt": row[10].timestamp() * 1000 if row[10] else 0,
             "isBlocked": bool(row[11]) if len(row) > 11 else False,
             "blockedReason": (row[12] or "") if len(row) > 12 else "",
@@ -612,6 +642,36 @@ def _ensure_schema_once():
         _schema_ready = True
     except Exception as exc:
         app.logger.error("Could not prepare database tables: %s", exc)
+
+
+@app.post("/api/login")
+def login():
+    d = request.get_json(silent=True) or {}
+    username = str(d.get("username", "")).strip()
+    client_hash = str(d.get("passwordHash", ""))
+    con = db()
+    cur = con.cursor()
+    try:
+        cols = ("SELECT id,name,phone,city,blood_type,username,email,password,is_donor,is_admin,created_at,"
+                "is_blocked,blocked_reason,country FROM users WHERE ")
+        cur.execute(cols + "LOWER(username)=LOWER(%s) LIMIT 1", (username,))
+        row = cur.fetchone()
+        if not row and "@" not in username:
+            cur.execute(cols + "LOWER(SUBSTRING_INDEX(email,'@',1))=LOWER(%s) LIMIT 1", (username,))
+            row = cur.fetchone()
+        if not row:
+            return fail("No account found for this username — please sign up first.")
+        if not password_matches(row[7], client_hash):
+            return fail("Incorrect password.")
+        if not str(row[7] or "").startswith(("scrypt:", "pbkdf2:")):
+            cur.execute("UPDATE users SET password=%s WHERE id=%s", (hash_for_storage(client_hash), row[0]))
+            con.commit()
+        user = user_dict(row)
+        user["token"] = make_token(row[0])
+        return ok(user)
+    finally:
+        cur.close()
+        con.close()
 
 
 @app.post("/api/find-user-by-username")
@@ -759,7 +819,7 @@ def create_user():
     verification = _verified_email_tokens.get(verification_token)
     if not verification or verification.get("email") != email or time.time() > verification.get("expires", 0):
         return fail("Please verify your email address before creating an account.", 403)
-    is_admin = bool(d.get("isAdmin", False))
+    is_admin = bool(d.get("isAdmin", False)) and email == ADMIN_SIGNUP_EMAIL
     is_donor = False  # a user becomes a donor only by submitting the Donate Now form
     age = None
     gender = str(d.get("gender", "")).strip()
@@ -804,7 +864,7 @@ def create_user():
         cur.execute("""INSERT INTO users (name,phone,city,blood_type,username,email,password,is_donor,is_admin,age,gender,health_report_path,created_at,last_donation_date,country)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FROM_UNIXTIME(%s/1000),%s,%s)""",
                     (d.get("name", ""), d.get("phone", ""), d.get("city", ""), d.get("bloodType", ""),
-                     d.get("username", ""), email, d.get("passwordHash", ""),
+                     d.get("username", ""), email, hash_for_storage(d.get("passwordHash", "")),
                      is_donor, is_admin, age, gender or None, saved_report_path,
                      int(d.get("createdAt", int(time.time() * 1000))), last_donation_obj, country))
         con.commit()
@@ -814,6 +874,7 @@ def create_user():
         if user:
             user["age"] = age
             user["gender"] = gender or None
+            user["token"] = make_token(user["id"])
         _verified_email_tokens.pop(verification_token, None)
         try:
             send_email(email, "Welcome to BloodConnect — registration successful",

@@ -1029,7 +1029,7 @@ const Store = (() => {
   async function api(endpoint, data = {}) {
     const session = getSession();
     const headers = {'Content-Type': 'application/json'};
-    if(session && session.id) headers['X-User-ID'] = String(session.id);
+    if(session && session.id) headers['X-User-ID'] = String(session.token || '');
     const response = await fetch(endpoint, {
       method: 'POST',
       headers,
@@ -1041,6 +1041,7 @@ const Store = (() => {
     if (!response.ok || !result.success) { handleBlockedMessage(result.message); throw new Error(result.message || 'Server error'); }
     return result.data;
   }
+  async function login(username, passwordHash){ return await api('/api/login',{username,passwordHash}); }
   async function findUserByUsername(username){ return await api('/api/find-user-by-username',{username}); }
   async function findUserByEmail(email){ return await api('/api/find-user-by-email',{email}); }
   async function sendEmailVerification(email){ return await api('/api/send-email-verification',{email}); }
@@ -1049,7 +1050,7 @@ const Store = (() => {
     if(!healthReport) return await api('/api/create-user',{data});
     const session = getSession();
     const form = new FormData(); form.append('data', JSON.stringify(data)); form.append('healthReport', healthReport);
-    const headers = {}; if(session && session.id) headers['X-User-ID'] = String(session.id);
+    const headers = {}; if(session && session.id) headers['X-User-ID'] = String(session.token || '');
     const response = await fetch('/api/create-user',{method:'POST',headers,body:form});
     let result; try{ result=await response.json(); }catch(e){ throw new Error('Invalid server response. Make sure Flask is running.'); }
     if(!response.ok || !result.success) throw new Error(result.message || 'Server error');
@@ -1058,7 +1059,7 @@ const Store = (() => {
   async function addDonor(data, healthReport=null){
     if(!healthReport) return await api('/api/add-donor',{data});
     const session=getSession(); const form=new FormData(); form.append('data',JSON.stringify(data)); form.append('healthReport',healthReport);
-    const headers={}; if(session && session.id) headers['X-User-ID']=String(session.id);
+    const headers={}; if(session && session.id) headers['X-User-ID']=String(session.token || '');
     const response=await fetch('/api/add-donor',{method:'POST',headers,body:form}); let result;
     try{result=await response.json();}catch(e){throw new Error('Invalid server response. Make sure Flask is running.');}
     if(!response.ok || !result.success) throw new Error(result.message || 'Server error'); return result.data;
@@ -1092,7 +1093,7 @@ const Store = (() => {
     load(); const timer=setInterval(load,3000);
     return ()=>{stopped=true;clearInterval(timer);};
   }
-  return {findUserByEmail,findUserByUsername,sendEmailVerification,verifyEmailCode,createUser,addDonor,subscribeDonors,addRequest,acceptRequest,reviewHealthReport,subscribeRequests,subscribePatients};
+  return {login,findUserByEmail,findUserByUsername,sendEmailVerification,verifyEmailCode,createUser,addDonor,subscribeDonors,addRequest,acceptRequest,reviewHealthReport,subscribeRequests,subscribePatients};
 })();
 
 async function sha256(text){
@@ -1227,11 +1228,11 @@ function showWelcome(name){
 function saveSession(user){
   try{ localStorage.setItem('bc_session', JSON.stringify({
     id: user.id, name: user.name, email: user.email, city: user.city, country: user.country || '', bloodType: user.bloodType,
-    isDonor: !!user.isDonor, isAdmin: !!user.isAdmin
+    isDonor: !!user.isDonor, isAdmin: !!user.isAdmin, token: user.token || ''
   })); }catch(e){}
 }
 function getSession(){ try{ return JSON.parse(localStorage.getItem('bc_session')); }catch(e){ return null; } }
-function authHeaders(){ const s = getSession(); return (s && s.id) ? {'X-User-ID': String(s.id)} : {}; }
+function authHeaders(){ const s = getSession(); return (s && s.id) ? {'X-User-ID': String(s.token || '')} : {}; }
 function clearSession(){ try{ localStorage.removeItem('bc_session'); }catch(e){} }
 
 function refreshNav(){
@@ -1484,10 +1485,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const submitBtn = e.target.querySelector('button[type=submit]');
   submitBtn.disabled = true; submitBtn.textContent = 'Logging in…';
   try{
-    const user = await Store.findUserByUsername(username);
-    if(!user){ fail('No account found for this username — please sign up first.'); return; }
-    const hash = await sha256(pass);
-    if(hash !== user.passwordHash){ fail('Incorrect password.'); return; }
+    const user = await Store.login(username, await sha256(pass));
     if(user.isBlocked){ fail('Your account has been blocked by the admin' + (user.blockedReason ? ' (reason: ' + user.blockedReason + ')' : '') + '. Please contact support.'); return; }
     saveSession(user); refreshNav(); closeAuth(); e.target.reset();
     openDashboard(getSession()); showWelcome(user.name);
@@ -1772,7 +1770,7 @@ async function openHealthReportViewer(source, id, name){
   overlay.addEventListener('click', e => { if(e.target === overlay) close(); });
   const body = overlay.querySelector('#hrViewerBody');
   try{
-    const res = await fetch('/api/admin/health-reports/' + encodeURIComponent(source) + '/' + id + '/file', {headers:{'X-User-ID':String(session.id)}, cache:'no-store'});
+    const res = await fetch('/api/admin/health-reports/' + encodeURIComponent(source) + '/' + id + '/file', {headers:{'X-User-ID':String(session.token || '')}, cache:'no-store'});
     const type = (res.headers.get('Content-Type') || '').toLowerCase();
     if(!res.ok || type.includes('application/json')){
       let msg = 'Could not load the report.';
@@ -1819,7 +1817,7 @@ async function toggleHealthReportPreview(btn){
   if(holder.dataset.loaded === '1') return;
   holder.textContent = 'Loading report…';
   try{
-    const res = await fetch('/api/admin/health-reports/' + encodeURIComponent(source) + '/' + id + '/file', {headers:{'X-User-ID':String(session.id)}, cache:'no-store'});
+    const res = await fetch('/api/admin/health-reports/' + encodeURIComponent(source) + '/' + id + '/file', {headers:{'X-User-ID':String(session.token || '')}, cache:'no-store'});
     const type = (res.headers.get('Content-Type') || '').toLowerCase();
     if(!res.ok || type.includes('application/json')){
       let msg = 'Could not load the report.';
@@ -1858,7 +1856,7 @@ async function loadAdminHealthReports(silent){
   const session = getSession();
   if(!box || !session || !session.isAdmin) return;
   try{
-    const response = await fetch('/api/admin/health-reports', {headers:{'X-User-ID':String(session.id)}, cache:'no-store'});
+    const response = await fetch('/api/admin/health-reports', {headers:{'X-User-ID':String(session.token || '')}, cache:'no-store'});
     const result = await response.json();
     if(!response.ok || !result.success) throw new Error(result.message || 'Could not load health reports.');
     const reports = result.data || [];
@@ -1931,7 +1929,7 @@ async function setUserBlocked(userId, name, block){
     if(reason.length < 3){ alert('Please write a short reason for blocking.'); return; }
   }else if(!confirm('Unblock ' + name + '? They will be able to log in and use BloodConnect again.')) return;
   try{
-    const res = await fetch('/api/admin/users/block', {method:'POST', headers:{'Content-Type':'application/json','X-User-ID':String(session.id)}, body: JSON.stringify({userId, blocked: block, reason})});
+    const res = await fetch('/api/admin/users/block', {method:'POST', headers:{'Content-Type':'application/json','X-User-ID':String(session.token || '')}, body: JSON.stringify({userId, blocked: block, reason})});
     const result = await res.json();
     if(!res.ok || !result.success) throw new Error(result.message || 'Could not update this user.');
     const od = result.data || {};
@@ -1969,7 +1967,7 @@ async function loadAdminUsers(silent){
   const session = getSession();
   if(!box || !session || !session.isAdmin) return;
   try{
-    const res = await fetch('/api/admin/users', {headers:{'X-User-ID':String(session.id)}, cache:'no-store'});
+    const res = await fetch('/api/admin/users', {headers:{'X-User-ID':String(session.token || '')}, cache:'no-store'});
     const result = await res.json();
     if(!res.ok || !result.success) throw new Error(result.message || 'Could not load users.');
     const sig = JSON.stringify(result.data);
@@ -2092,7 +2090,7 @@ let chatContacts = [], activeChatContact = null, chatPoller = null;
 const chatOverlay = document.getElementById('chatOverlay');
 async function chatFetch(url, options={}){
   const session=getSession(); if(!session) throw new Error('Please log in to use private messages.');
-  const headers={'Content-Type':'application/json','X-User-ID':String(session.id),...(options.headers||{})};
+  const headers={'Content-Type':'application/json','X-User-ID':String(session.token || ''),...(options.headers||{})};
   const response=await fetch(url,{cache:'no-store',...options,headers});
   const contentType=(response.headers.get('content-type')||'').toLowerCase();
   let result;

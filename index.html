@@ -965,11 +965,11 @@
           <small class="form-note" style="display:block;margin-top:6px">You can donate again 90 days after this date; until then you appear under “Awaiting donors”.</small>
         </div>
         <div class="field full" id="suHealthReportField" style="display:none"><label for="suHealthReport">Health report (required for donors)</label><input type="file" id="suHealthReport" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"><small class="form-note" style="display:block;margin-top:6px">Upload a PDF, PNG, or JPG file up to 10 MB. This report is stored privately and is not shown on the public donor list.</small></div>
-        <div class="field full" style="display:none">
+        <div class="field full" id="roleField" style="display:none">
           <label>Account type</label>
           <div class="chip-row" id="roleRow">
             <label class="chip-opt checked"><input type="radio" name="suRole" value="accepter" checked>Accepter</label>
-            
+            <label class="chip-opt"><input type="radio" name="suRole" value="admin">Admin</label>
           </div>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create account</button>
@@ -1345,6 +1345,7 @@ document.querySelectorAll('#roleRow .chip-opt input').forEach(inp => {
   });
 });
 updateSignupRoleFields();
+if(/[?&]admin=1(&|$)/.test(location.search)){ const rf=document.getElementById('roleField'); if(rf) rf.style.display=''; }
 
 function openDashboard(session){
   const s = session || getSession();

@@ -1335,7 +1335,7 @@ function updateSignupRoleFields(){
   hrf.style.display = 'none';
   hr.required = isDonorRole;
   ld.max = new Date().toISOString().slice(0,10);
-  document.getElementById('suPass').placeholder = isAdmin ? 'Admin password: 12345' : 'At least 6 characters';
+  document.getElementById('suPass').placeholder = isAdmin ? 'Choose a strong admin password (8+ characters)' : 'At least 6 characters';
 }
 document.querySelectorAll('#roleRow .chip-opt input').forEach(inp => {
   inp.addEventListener('change', () => {
@@ -1419,9 +1419,10 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
   if(!/^[A-Za-z0-9_]{3,20}$/.test(username)){ return fail('Username must be 3–20 characters and use only letters, numbers or _.'); }
   if(!isValidEmail(email)){ return fail('That doesn\'t look like a real email address — make sure it includes an @ and a domain, e.g. name@example.com.'); }
   if(isAdminRole){
-    if(username !== 'admin' || email !== 'admin@gmail.com' || pass !== '12345'){
-      return fail('Admin registration requires username admin, email admin@gmail.com and password 12345.');
+    if(username !== 'admin' || email !== 'admin@gmail.com'){
+      return fail('Admin registration requires username admin and email admin@gmail.com.');
     }
+    if(pass.length < 8){ return fail('Choose an admin password of at least 8 characters.'); }
   } else {
     if(!name || !country || !phone || !bloodType || !age || age < 1 || age > 120 || !gender){ return fail('Please enter your name, country, ID number, age, gender and blood type.'); }
     const idCheck = validateId(country, phone);
